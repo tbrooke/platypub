@@ -1,5 +1,6 @@
 (ns com.platypub.feat.posts
-  (:require [cheshire.core :as cheshire]
+  (:require [better-cond.core :as b]
+            [cheshire.core :as cheshire]
             [com.biffweb :as biff :refer [q]]
             [com.platypub.mailgun :as mailgun]
             [com.platypub.netlify :as netlify]
@@ -12,44 +13,49 @@
             [ring.middleware.anti-forgery :as anti-forgery])
   (:import [io.github.furstenheim CopyDown]))
 
-(defn edit-post [{:keys [params] :as req}]
-  (let [{:keys [id
-                html
-                published
-                tags
-                slug
-                description
-                image
-                canonical
-                draft
-                title]} params]
-    (biff/submit-tx req
-      [{:db/doc-type :post
-        :db/op :update
-        :xt/id (parse-uuid id)
-        :post/title title
-        :post/html html
-        :post/published-at (edn/read-string published)
-        :post/slug slug
-        :post/status (if (= draft "on")
-                       :draft
-                       :published)
-        :post/tags (->> (str/split tags #"\s+")
-                        (remove empty?)
-                        distinct
-                        vec)
-        :post/description description
-        :post/image image
-        :post/canonical canonical
-        :post/edited-at :db/now}])
+(defn edit-post [{:keys [params session biff/db] :as req}]
+  (util/else->>
+    (let [{:keys [id
+                  html
+                  published
+                  tags
+                  slug
+                  description
+                  image
+                  canonical
+                  draft
+                  title]} params
+          post-id (parse-uuid id)])
+    (if (not= (:uid session) (:post/user (xt/entity db post-id)))
+      util/forbidden)
+    (do (biff/submit-tx req
+          [{:db/doc-type :post
+            :db/op :update
+            :xt/id post-id
+            :post/title title
+            :post/html html
+            :post/published-at (edn/read-string published)
+            :post/slug slug
+            :post/status (if (= draft "on")
+                           :draft
+                           :published)
+            :post/tags (->> (str/split tags #"\s+")
+                            (remove empty?)
+                            distinct
+                            vec)
+            :post/description description
+            :post/image image
+            :post/canonical canonical
+            :post/edited-at :db/now}]))
     {:status 303
      :headers {"location" (str "/app/posts/" id)}}))
 
-(defn new-post [req]
+(defn new-post [{:keys [session] :as req}]
   (let [id (random-uuid)]
     (biff/submit-tx req
       [{:db/doc-type :post
         :xt/id id
+        :post/user (:uid session)
         :post/html ""
         :post/published-at :db/now
         :post/slug ""
@@ -64,20 +70,28 @@
     {:status 303
      :headers {"location" (str "/app/posts/" id)}}))
 
-(defn delete-post [{:keys [path-params] :as req}]
-  (biff/submit-tx req
-    [{:xt/id (parse-uuid (:id path-params))
-      :db/op :delete}])
-  {:status 303
-   :headers {"location" "/app"}})
+(defn delete-post [{:keys [biff/db path-params session] :as req}]
+  (util/else->>
+    (let [post-id (parse-uuid (:id path-params))])
+    (if (not= (:uid session) (:post/user (xt/entity db post-id)))
+      util/forbidden)
+    (do (biff/submit-tx req
+          [{:xt/id post-id
+            :db/op :delete}]))
+    {:status 303
+     :headers {"location" "/app"}}))
 
 (defn send-page [{:keys [biff/db session path-params params] :as req}]
   (let [{:user/keys [email]} (xt/entity db (:uid session))
         post-id (parse-uuid (:id path-params))
         post (xt/entity db post-id)
+        post (when (= (:post/user post) (:uid session))
+               post)
         lists (q db
                  '{:find (pull list [*])
-                   :where [[list :list/address]]})]
+                   :in [user]
+                   :where [[list :list/user user]]}
+                 (:uid session))]
     (ui/nav-page
       {:current :posts
        :email email}
@@ -135,12 +149,12 @@
       (str/replace "(" "( ")
       (str/replace ")" " )")))
 
-(defn render-email [{:keys [biff/db] {:keys [list-id post-id]} :params :as req}]
+(defn render-email [{:keys [biff/db session] {:keys [list-id post-id]} :params :as req}]
   (let [render-opts (assoc (util/get-render-opts req)
                            :list-id (parse-uuid list-id)
                            :post-id (parse-uuid post-id))
-        post (xt/entity db (parse-uuid post-id))
-        lst (xt/entity db (parse-uuid list-id))
+        post (util/ensure-owner (:uid session) (xt/entity db (parse-uuid post-id)))
+        lst (util/ensure-owner (:uid session) (xt/entity db (parse-uuid list-id)))
         dir (str "themes/" (:list/theme lst))
         _ (biff/sh "chmod" "+x" "./render-email" :dir dir)
         msg (merge {:subject (:post/title post)}
@@ -171,11 +185,12 @@
 
 (defn edit-post-page [{:keys [path-params
                               biff/db
+                              session
                               tinycloud/api-key]
                        :or {api-key "no-api-key"}
                        :as req}]
   (let [post-id (parse-uuid (:id path-params))
-        post (xt/entity db post-id)]
+        post (util/ensure-owner (:uid session) (xt/entity db post-id))]
     (ui/base
       {:base/head [[:script (biff/unsafe (slurp (io/resource "darkmode.js")))]
                    [:script {:referrerpolicy "origin",
@@ -277,7 +292,9 @@
   (let [{:user/keys [email]} (xt/entity db (:uid session))
         posts (q db
                  '{:find (pull post [*])
-                   :where [[post :post/html]]})
+                   :in [user]
+                   :where [[post :post/user user]]}
+                 (:uid session))
         [drafts published] (util/split-by #(= :published (:post/status %)) posts)]
     (ui/nav-page
       {:current :posts
@@ -299,7 +316,7 @@
            (sort-by :post/published-at #(compare %2 %1))
            (map post-list-item)))))
 
-(defn upload-image [{:keys [s3/cdn] :as req}]
+(defn upload-image [{:keys [session s3/cdn] :as req}]
   (let [image-id (random-uuid)
         file-info (get-in req [:multipart-params "file"])
         url (str cdn "/" image-id)]
@@ -311,6 +328,7 @@
     (biff/submit-tx req
       [{:db/doc-type :image
         :xt/id image-id
+        :image/user (:uid session)
         :image/url url
         :image/filename (:filename file-info)
         :image/uploaded-at :db/now}])

@@ -9,6 +9,8 @@
             [ring.util.mime-type :as mime]
             [ring.util.time :as ring-time]))
 
+(defmacro else->> [& forms] `(->> ~@(reverse forms)))
+
 (defn split-by [pred coll]
   [(remove pred coll)
    (filter pred coll)])
@@ -118,3 +120,11 @@
                (assoc doc :db/doc-type doc-type))]
     {:account account
      :db (into {} (map (juxt :xt/id identity)) docs)}))
+
+(def forbidden {:status 403
+                :headers {"content-type" "text/html"}
+                :body "<h1>Forbidden</h1>"})
+
+(defn ensure-owner [uid doc]
+  (when (some #(= uid (get doc %)) [:post/user :site/user :list/user :image/user])
+    doc))
