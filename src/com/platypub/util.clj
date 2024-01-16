@@ -3,7 +3,9 @@
             [clj-http.client :as http]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
+            [clojure.java.shell :as shell]
             [clojure.string :as str]
+            [clojure.tools.logging :as log]
             [com.biffweb :as biff :refer [q]]
             [lambdaisland.uri :as uri]
             [ring.util.io :as ring-io]
@@ -64,18 +66,6 @@
                 (str/replace (str "/" (str/join "/" args)) #"/+" "/")
                 (apply concat query)))))
 
-(defn slurp-config [path]
-  (when (.exists (io/file path))
-    (let [env (keyword (or (System/getenv "BIFF_ENV") "prod"))
-          env->config (edn/read-string (slurp path))
-          config-keys (concat (get-in env->config [env :merge]) [env])
-          config (apply merge (map env->config config-keys))]
-      config)))
-
-(defn get-secret [sys k]
-  (or (get sys k)
-      (get (slurp-config "secrets.edn") k)))
-
 (defmacro else->> [& forms] `(->> ~@(reverse forms)))
 
 (defn split-by [pred coll]
@@ -123,7 +113,8 @@
       (.read in out)
       out)))
 
-(defn s3 [{:keys [s3/base-url
+(defn s3 [{:keys [biff/secret
+                  s3/base-url
                   s3/bucket
                   s3/access-key]
            :as sys}
@@ -149,7 +140,7 @@
                              (str k ":" v "\n")))
                       (apply str))
         string-to-sign (str method "\n" md5 "\n" content-type "\n" date "\n" headers' path)
-        signature (hmac-sha1-base64 (get-secret sys :s3/secret-key) string-to-sign)
+        signature (hmac-sha1-base64 (secret :s3/secret-key) string-to-sign)
         auth (str "AWS " access-key ":" signature)]
     (http/request {:method method
                    :url (str base-url path)
@@ -159,20 +150,27 @@
                                    headers)
                    :body (some-> file file->bytes)})))
 
-(defn q-sites [db user]
+(defn resolve-theme [{:keys [com.platypub/themes]} theme-str]
+  (some->> (map str themes)
+           (some #{theme-str})
+           symbol
+           requiring-resolve
+           deref))
+
+(defn merge-site-config [ctx site]
+  (merge site
+         (select-ns-as
+          (resolve-theme ctx (:site/theme site))
+          nil
+          'site.config)))
+
+(defn q-sites [{:keys [biff/db] :as ctx} user]
   (->> (q db
           '{:find (pull site [*])
             :in [user]
             :where [[site :site/user user]]}
           (:xt/id user))
-       (map (fn [site]
-              (merge site
-                     (select-ns-as
-                      (biff/catchall
-                       (edn/read-string
-                        (slurp (str "themes/" (:site/theme site) "/config.edn"))))
-                      nil
-                      'site.config))))))
+       (map #(merge-site-config ctx %))))
 
 (defn serve-static-file [file]
   {:status 200
@@ -197,7 +195,12 @@
      (:xt/id user)
      (:xt/id site)))
 
-(defn get-render-opts [{:keys [biff/db user site item] :as sys}]
+(defn something? [x]
+  (if (or (coll? x) (string? x))
+    (boolean (not-empty x))
+    (some? x)))
+
+(defn get-render-opts [{:keys [biff/secret biff/db user site item] :as sys}]
   (let [defaults (->> site
                       :site.config/fields
                       (map (fn [[k v]]
@@ -207,15 +210,16 @@
                   (dissoc-ns 'site.config)
                   (rename-ns 'site.custom nil))
         site' (reduce (fn [m k]
-                        (if (contains? m k)
+                        (if (something? (m k))
                           m
                           (assoc m k (defaults k))))
                       site'
                       (:site.config/site-fields site))]
     (into {:account (-> sys
-                        (select-keys [:mailgun/domain :recaptcha/site])
-                        (assoc :mailgun/api-key (get-secret sys :mailgun/api-key))
-                        (assoc :recaptcha/secret (get-secret sys :recaptcha/secret)))
+                        (select-keys [:mailgun/domain :recaptcha/site-key])
+                        (assoc :mailgun/api-key (secret :mailgun/api-key))
+                        (assoc :recaptcha/secret (secret :recaptcha/secret-key))
+                        (assoc :recaptcha/secret-key (secret :recaptcha/secret-key)))
            :site site'
            :lists (q db
                      '{:find (pull lst [*])
@@ -229,10 +233,6 @@
             [(:key item-spec)
              (->> (q-items db user site item-spec)
                   (map #(rename-ns % 'item.custom nil)))]))))
-
-(defn enable-recaptcha? [sys]
-  (and (some? (:com.platypub/enable-email-signin sys))
-       (some? (get-secret sys :recaptcha/secret))))
 
 (defn last-edited [db id]
   (:xtdb.api/valid-time (first (xt/entity-history db id :desc))))
@@ -256,11 +256,6 @@
               (= (get item (add-prefix "item.custom." k)) v))
             spec)))
 
-(defn something? [x]
-  (if (or (coll? x) (string? x))
-    (boolean (not-empty x))
-    (some? x)))
-
 (defn slugify [title]
   (-> title
       str/lower-case
@@ -269,8 +264,13 @@
       (str/replace #"[:?#\[\]@!$&'()*+,;=\"<>%{}\\^`]" "")
       (str/replace #"\s+" "-")))
 
-(defn params->custom-fields [{:keys [site item-spec params]}]
-  (let [[prefix ks] (if item-spec
+(defn date-time-string->java-Date [date-string]
+  (when (not-empty date-string)
+    (edn/read-string (str "#inst" "\"" date-string "\""))))
+
+(defn params->custom-fields [{:keys [site item-spec params] :as ctx}]
+  (let [theme (resolve-theme ctx (:site/theme site))
+        [prefix ks] (if item-spec
                       ["item.custom." (:fields item-spec)]
                       ["site.custom." (:site.config/site-fields site)])]
     (for [k ks
@@ -278,7 +278,7 @@
                 {:keys [type default]} (get-in site [:site.config/fields k])]]
       [(add-prefix prefix k)
        (cond
-         (= type :instant) (edn/read-string value)
+         (= type :instant) (date-time-string->java-Date value)
          (= type :boolean) (= value "on")
          (= type :tags) (->> (str/split value #"\s+")
                              (remove empty?)
@@ -290,4 +290,5 @@
             :slugify slugify
             (constantly nil))
           (params (keyword (name (second default)))))
+
          :else value)])))

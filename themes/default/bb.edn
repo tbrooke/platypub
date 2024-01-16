@@ -1,0 +1,2 @@
+{:deps {com.platypub.themes.default/tasks {:local/root "tasks"}}
+ :tasks {css com.platypub.themes.default.tasks/css}}

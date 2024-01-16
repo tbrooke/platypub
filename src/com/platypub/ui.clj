@@ -1,12 +1,19 @@
 (ns com.platypub.ui
-  (:require [clojure.java.io :as io]
+  (:require [cheshire.core :as cheshire]
+            [clojure.java.io :as io]
             [clojure.tools.logging :as log]
             [clojure.string :as str]
+            [clojure.set :as set]
             [com.biffweb :as biff]
             [com.platypub.util :as util]
+            [com.platypub.settings :as settings]
+            [ring.middleware.anti-forgery :as csrf]
             [rum.core :as rum]))
 
 (def interpunct " · ")
+
+;; useful if you want to prevent gmail from formatting something as a link
+(def fake-period "․")
 
 ;; https://orioniconlibrary.com/icon/sun-and-moon-4452
 
@@ -33,20 +40,28 @@
     (str "/css/main.css?t=" (.lastModified f))
     "/css/main.css"))
 
-(defn base [opts & body]
+(defn base [{:keys [::recaptcha] :as opts} & body]
   (apply
    biff/base-html
    (-> opts
-       (merge #:base{:title "Platypub"
+       (merge #:base{:title settings/app-name
                      :lang "en-US"
-                     :icon "/img/glider.png"
-                     :description ""
-                     :image "https://clojure.org/images/clojure-logo-120b.png"})
+                     :description (str settings/app-name " Description")})
        (update :base/head (fn [head]
-                            (concat [[:link {:rel "stylesheet" :href (css-path)}]
-                                     [:script {:src "https://unpkg.com/htmx.org@1.7.0"}]
-                                     [:script {:src "https://unpkg.com/hyperscript.org@0.9.5"}]]
-                                    head))))
+                            (concat [[:script {:src "https://unpkg.com/htmx.org@1.7.0"}]
+                                     [:script {:src "https://unpkg.com/hyperscript.org@0.9.5"}]
+                                     (when recaptcha
+                                       [:script {:src "https://www.google.com/recaptcha/api.js"
+                                                 :async "async" :defer "defer"}])
+                                     [:link {:rel "apple-touch-icon", :sizes "180x180", :href "/apple-touch-icon.png"}]
+                                     [:link {:rel "icon", :type "image/png", :sizes "32x32", :href "/favicon-32x32.png"}]
+                                     [:link {:rel "icon", :type "image/png", :sizes "16x16", :href "/favicon-16x16.png"}]
+                                     [:link {:rel "manifest", :href "/site.webmanifest"}]
+                                     [:link {:rel "mask-icon", :href "/safari-pinned-tab.svg", :color "#5bbad5"}]
+                                     [:meta {:name "msapplication-TileColor", :content "#da532c"}]
+                                     [:meta {:name "theme-color", :content "#ffffff"}]]
+                                    head
+                                    [[:link {:rel "stylesheet" :href (css-path)}]]))))
    body))
 
 (def nav-options
@@ -131,7 +146,7 @@
                      min-h-screen]}
       body]]
 
-    ;;; Pills 
+    ;;; Pills
 
     [:div.md:hidden
      {:class '[flex
@@ -141,30 +156,16 @@
                text-gray-100]}
      [:div {:class '[flex
                      justify-between]}
-      [:a {:href "#"
-           :class '[block
-                    text-xl
-                    mx-3
-                    p-3
-                    text-white]} "Platypub"]
-      [:.py-3
-       [:.px-6 (:user/email user) " | "
-        (biff/form
-         {:action "/auth/signout"
-          :class "inline"}
-         [:button.hover:underline {:type "submit"}
-          "sign out"])]]]
-     [:.flex-grow]
-     [:div#prefs.hidden
-      [:button.btn.mx-6.my-3 {:onclick "toggleDarkMode()"} "Toggle dark mode"]
-      [:.px-6.text-sm (:user/email user)]
-      [:.px-6.text-sm
+      [:div {:class '[block
+                      p-3
+                      text-xl
+                      text-white]} "Platypub"]
+      [:.p-3 (:user/email user) " | "
        (biff/form
         {:action "/auth/signout"
          :class "inline"}
-        [:button.text-amber-600.hover:underline {:type "submit"}
-         "sign out"])]
-      [:.h-3]]
+        [:button.hover:underline {:type "submit"}
+         "sign out"])]]
      [:div#body {:class '[p-3
                           text-black
                           bg-gray-100
@@ -175,7 +176,7 @@
        (pills {:options nav-options
                :active current})
        [:.flex-grow]
-       [:a.mr-3 {:href "#"
+       [:a {:href "#"
                  :onclick "toggleDarkMode()"} sun-moon-svg]]
       [:.h-5]
       body]])))
@@ -183,16 +184,22 @@
 (defn page [opts & body]
   (base
    opts
+   [:.flex-grow]
    [:.p-3.mx-auto.max-w-screen-sm.w-full
-    body]))
+    (when (bound? #'csrf/*anti-forgery-token*)
+      {:hx-headers (cheshire/generate-string
+                    {:x-csrf-token csrf/*anti-forgery-token*})})
+    body]
+   [:.flex-grow]
+   [:.flex-grow]))
 
-(defn text-input [{:keys [id label description element]
-                   :or {element :input}
+(defn input [{:keys [id label description element type]
+                   :or {element :input type "text"}
                    :as opts}]
   (list
    (when label
      [:label.block.text-sm.mb-1 {:for id} label])
-   [element (merge {:type "text"
+   [element (merge {:type type
                     :class '[w-full
                              border-gray-300
                              rounded
@@ -206,6 +213,9 @@
                    (dissoc opts :label :description))]
    (when description
      [:.text-sm.text-gray-600.dark:text-gray-400 description])))
+
+(defn text-input [opts]
+  (input (merge opts {:type "text"})))
 
 (defn textarea [opts]
   (text-input (assoc opts :element :textarea)))
@@ -245,7 +255,7 @@
                         border-gray-300
                         py-1
                         px-2
-                        pr-6
+                        pr-10
                         rounded
                         leading-tight
                         focus:outline-none
@@ -273,6 +283,16 @@
                    "checked")}]
       [:span.ml-2 label]])))
 
+(defn color [{:keys [id label value description] :as opts}]
+  (let [text-input-opts (assoc (dissoc opts :label :description) :_ "on blur tell the previous <input[type=color] /> set your value to my value")]
+    (list
+     [:label.block.text-sm.mb-1 {:for id} label]
+     [:.flex {:id id}
+      [:input {:_ "on change tell the next <input[type=text] /> set your value to my value" :type "color" :value value :class "mr-2" :style {:height "42px" :width "42px"}}]
+      (text-input text-input-opts)]
+     (when description
+       [:.text-sm.text-gray-600.dark:text-gray-400 description]))))
+
 (def not-found-response
   {:status 404
    :headers {"content-type" "text/html"}
@@ -282,28 +302,35 @@
   (let [{:keys [label type default description]} (get-in site [:site.config/fields k])
         value (if item
                 (get item (util/add-prefix "item.custom." k))
-                (get site (util/add-prefix "site.custom." k)))]
+                (get site (util/add-prefix "site.custom." k)))
+        opts {:id (name k)
+              :label label
+              :value value
+              :description (->> [(when default
+                                   (str "Default: "
+                                        (pr-str default)))
+                                 description]
+                                (filter some?)
+                                (str/join ". ")
+                                not-empty)}]
     (case type
-      :textarea (textarea {:id (name k)
-                           :label label
-                           :value value})
-      :instant (text-input {:id (name k)
-                            :label label
-                            :value (pr-str value)})
-      :boolean (checkbox {:id (name k)
-                          :label label
-                          :checked value})
-      :tags (text-input {:id (name k)
-                         :label label
-                         :value (str/join " " value)})
+      :textarea (textarea opts)
+      :instant (input {:id (name k)
+                       :type "datetime-local"
+                       :label (str label " (UTC)")
+                       :step 1
+                       :value (some-> value
+                                      (.toInstant)
+                                      (.toString)
+                                      (str/split #"(\.|Z)")
+                                      first)})
+      :boolean (checkbox (set/rename-keys opts {:value :checked}))
+      :tags (text-input (assoc opts :value (str/join " " value)))
       :image (list
-              (text-input {:id (name k)
-                           :label label
-                           :value value})
+              (text-input opts)
               (when (not-empty value)
                 [:.mt-3.flex.justify-center
                  [:img {:src value
                         :style {:max-height "10rem"}}]]))
-      (text-input {:id (name k)
-                   :label label
-                   :value value}))))
+      :color (color opts)
+      (text-input opts))))

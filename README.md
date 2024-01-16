@@ -1,11 +1,18 @@
 # Platypub
 
-An in-depth, real-world example project made with [Biff](https://biffweb.com/). Platypub is a publishing platform that's meant to give you the same amount of control as you would get from a static site generator,
-while providing the same level of convenience as WordPress, Ghost, Substack etc. In addition to scratching my own itch, Platypub is
-intended to help people learn Biff by providing a fun opportunity to hack on an open-source application. See the [list of good first issues](https://github.com/jacobobryant/platypub/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) if you'd like to start contributing.
+**ALPHA NOTICE:** Platypub is still in an early state and is in need of a rearchitecture. Breaking changes imminent.
 
-See also [Announcing Platypub: open-source blogging + newsletter tool](https://biffweb.com/p/announcing-platypub/). Platypub is very early stage and needs a lot of work. Nevertheless I am already using it for both
-[biffweb.com](https://biffweb.com) and [blog.thesample.ai](https://blog.thesample.ai/).
+A blogging + newsletter platform. Platypub is basically (1) a CMS, with (2) integrations for Netlify (for hosting your site) and Mailgun (for sending your newsletter) and (3) an extremely flexible theme system. Platypub can run as a multi-tenant managed service (e.g. as opposed to Ghost/Wordpress, where each user must have their own instance), or you can self-host it or even run it locally. It's meant to combine the convenience of e.g. Substack with the flexibility of a static site generator. I also want to add data import/export integrations, so you can e.g. publish your social media posts on your website, or automatically cross-post your articles to social media.
+
+Platypub is not ready for general use yet. When it is, I'll host a public instance of it (with usage-based pricing and a free tier).
+
+Platypub is built with [Biff](https://biffweb.com/), a Clojure web framework. If you're a Clojurist and you'd like to contribute, see [the roadmap](https://github.com/users/jacobobryant/projects/1/views/1) for a list of good first issues.
+
+See also [Announcing Platypub: open-source blogging + newsletter tool](https://biffweb.com/p/announcing-platypub/).
+
+<img width="800px" style="margin-right:10px" src="https://user-images.githubusercontent.com/3696602/194668648-c0950e8e-c595-404a-a0e2-d6c7847b43ce.png" />
+
+<img width="800px" src="https://user-images.githubusercontent.com/3696602/194668694-c7b968ec-0900-4f1e-aa80-fafc0feed911.png" />
 
 ## Getting started
 
@@ -13,40 +20,46 @@ Prerequisites:
  - JDK 11 or higher
  - [clj](https://clojure.org/guides/getting_started)
  - [Babashka](https://github.com/babashka/babashka#quickstart) (`bb` should be on your path)
- - (Optional) API keys for Netlify, S3, Mailgun, and Recaptcha (see `config.edn` and `secrets.edn`). You can run Platypub without these, but
+ - (Optional) API keys for Netlify, S3, Mailgun, and Recaptcha (see `config.edn` and `secrets.env`). You can run Platypub without these, but
  most of the features won't be available.
 
 Run the following:
 
 ```
 cp config.edn.TEMPLATE config.edn
-cp secrets.edn.TEMPLATE secrets.edn
-cp config.sh.TEMPLATE config.sh
+cp secrets.env.TEMPLATE secrets.env
+cp themes/deps.edn.TEMPLATE themes/deps.edn
 ```
-Then you can start Platypub with `./task dev`. After you see a `System started` message, the app will be running on `localhost:8080`.
+
+Run `bb generate-secrets` and paste the output into `secrets.env`. Also edit `config.edn` and `secrets.env` as needed.
+
+Then you can start Platypub with `bb dev`. After you see a `System started` message, the app will be running on `localhost:8080`.
 Once you've signed in, you can create a site, a newsletter,
 and some posts as described in the [default theme setup](https://github.com/jacobobryant/platypub/tree/master/themes/default#setup).
 
-## Roadmap
+### Create a website
 
-Stage 1: Platypub can be used locally by a single user. (Current stage)
+1. Go to Sites and click "New site"
+2. Go to Newsletters and click "New newsletter"
+3. Create the following pages for the new site:
+  - One with path: `/` (home page)
+  - One with path: `/subscribed` (page shown to people after they subscribe to your newsletter)
+  - One with path: `/about` (page linked to in the navigation bar by default)
+  - One with path: `/welcome` and tags: `welcome` (email sent to people after they subscribe to your newsletter)
 
-Stage 2: Platypub can be ran as a managed web service and used by multiple users, without
-custom themes. Users must supply their own API keys for Mailgun, Netlify, and Recaptcha. And
-maybe S3.
+Then you can go to Sites and click "preview." If you want to set a custom domain, you'll need to do it from Netlify's website,
+then update the URL field on the site config page.
 
-Stage 3: Like stage 2, but with custom themes. Need to be able to run themes in
-a sandbox, ideally with https://www.cloudflare.com/lp/workers-for-platforms/.
-I'll apply for access once we're ready, though I'm guessing they only care
-about enterprise at this point. If needed we could hopefully use AWS Lambda
-without much too much trouble, though I'm inclined to just wait until
-Cloudflare opens up access. (Probably everyone who uses Platypub will be self-hosting/running it
-locally for a while anyway.)
+### Create a custom theme
 
-Stage 4: Like stage 3, but users don't have to bring their own API keys.
+1. Copy `themes/default` to `themes/mytheme` (or whatever)
+2. Edit/move all the files under `themes/mytheme` so they use a unique namespace instead of `com/platypub/themes/default`
+3. Edit the `default.clj` file (or whatever you renamed it to) and change the `:label` key at the bottom to something unique.
+4. Edit `themes/deps.edn` and add `themes/mytheme` as a local dependency.
+5. Edit `config.edn` and add the fully-qualified symbol for your theme's plugin var to `:com.platypub/themes`
+6. Go to Sites -> click on your website, then change the theme setting to your new theme.
 
-Stage 5: Theme development can be done from within Platypub. Platypub becomes
-good at sucking people into Clojure/programming in general.
+While developing your theme, you'll need to do `cd themes/mytheme; bb css` to make the css file update.
 
 ## Deployment
 
@@ -55,57 +68,3 @@ will be hosted externally on Netlify anyway. However if you'd like to deploy it 
 uncomment the `:com.platypub/allowed-users` and `:com.platypub/enable-email-sigin` config keys first.
 
 See [the Biff docs](https://biffweb.com/docs/#production) for deployment instructions.
-
-## Commands
-
-### `./task dev`
-
-Starts the app locally. After running, wait for the `System started` message.
-Connect your editor to nrepl port 7888. Whenever you save a file, Biff will:
-
- - Evaluate any changed Clojure files
- - Regenerate static HTML and CSS files
- - Run tests
-
-### `./task format`
-
-Format the code with cljfmt
-
-### `./task clean`
-
-Deletes generated files.
-
-### `./task deploy`
-
-`rsync`s config files to the server, deploys code via `git push`, and restarts
-the app process on the server (via git push hook). You must set up a server
-first. See [Production](https://biffweb.com/docs/#production).
-
-### `./task soft-deploy`
-
-`rsync`s config and code to the server, then `eval`s any changed files and
-regenerates HTML and CSS files. Does not refresh or restart.
-
-### `./task refresh`
-
-Reloads code and restarts the system via `clojure.tools.namespace.repl/refresh`
-(on the server). To do this in local development, evaluate
-`(com.biffweb/refresh)` with your editor.
-
-### `./task restart`
-
-Restarts the app process via `systemctl restart app` (on the server).
-
-### `./task logs`
-
-Tail the server's application logs.
-
-### `./task prod-repl`
-
-Open an SSH tunnel so you can connect to the server via nREPL.
-
-### `./task prod-dev`
-
-Runs `./task logs` and `./task prod-repl`. In addition, whenever you save a
-file, it will be copied to the server (via rsync) and evaluated, after which
-HTML and CSS will be regenerated.
