@@ -39,10 +39,16 @@
                                              :type :textarea}
           :com.platypub.post/image          {:label "Image"
                                              :type :image}
+          :com.platypub.post/order          {:label "Order"
+                                             :type :order}
           :com.platypub.post/canonical      {:label "Canonical URL"}
           :com.platypub.post/html           {:type :html}
           :com.platypub.page/path           {:label "Path"
-                                             :default [:slugify :com.platypub.post/title]}}
+                                             :default [:slugify :com.platypub.post/title]}
+          :com.platypub.event/event-date    {:label "Date"}
+          :com.platypub.event/event-time    {:label "Time"}
+          :com.platypub.video/video    {:label "Video"}
+          :com.platypub.feature/order       {:label "Order"}}
  :site-fields [:com.platypub.site/description
                :com.platypub.site/image
                :com.platypub.site/redirects
@@ -68,6 +74,7 @@
                    :com.platypub.post/tags
                    :com.platypub.post/description
                    :com.platypub.post/image
+                   :com.platypub.post/order
                    :com.platypub.post/canonical
                    :com.platypub.post/html]
           :sendable true
@@ -81,6 +88,86 @@
                              :order-by [[:com.platypub.post/published-at :desc]]
                              :show [:com.platypub.post/published-at
                                     :com.platypub.post/tags]}]}
+         {:key :events
+          :label "Event"
+          :slug "events"
+          :query [:com.platypub.event/slug]
+          :fields [:com.platypub.post/title
+                   :com.platypub.event/event-date
+                   :com.platypub.event/event-time
+                   :com.platypub.post/slug
+                   :com.platypub.post/draft
+                   :com.platypub.post/published-at
+                   :com.platypub.post/tags
+                   :com.platypub.post/description
+                   :com.platypub.post/image
+                   :com.platypub.post/canonical
+                   :com.platypub.post/html]
+          :sendable true
+          :render/label :com.platypub.event/title
+          :render/sections [{:label "Drafts"
+                             :match [[:com.platypub.event/draft true]]
+                             :order-by [[:com.platypub.event/title :desc]]
+                             :show [:com.platypub.event/tags]}
+                            {:label "Published"
+                             :match [:not [[:com.platypub.event/draft true]]]
+                             :order-by [[:com.platypub.event/published-at :desc]]
+                             :show [:com.platypub.event/published-at
+                                    :com.platypub.event/tags]}]}
+
+         
+         {:key :features
+          :label "Feature"
+          :slug "features"
+          :query [:com.platypub.post/slug]
+          :fields [:com.platypub.post/title
+                   :com.platypub.post/slug
+                   :com.platypub.post/draft
+                   :com.platypub.post/published-at
+                   :com.platypub.post/tags
+                   :com.platypub.post/description
+                   :com.platypub.post/image
+                   :com.platypub.post/canonical
+                   :com.platypub.post/html
+                   :com.platypub.feature/order]
+          :sendable true
+          :render/label :com.platypub.feature/title
+          :render/sections [{:label "Drafts"
+                             :match [[:com.platypub.post/draft true]]
+                             :order-by [[:com.platypub.post/title :desc]]
+                             :show [:com.platypub.post/tags]}
+                            {:label "Published"
+                             :match [:not [[:com.platypub.post/draft true]]]
+                             :order-by [[:com.platypub.post/published-at :desc]]
+                             :show [:com.platypub.post/published-at
+                                    :com.platypub.post/tags]}]}
+
+         {:key :videos
+          :label "Video"
+          :slug "vodeos"
+          :query [:com.platypub.video/slug]
+          :fields [:com.platypub.post/title
+                   :com.platypub.post/slug
+                   :com.platypub.posr/draft
+                   :com.platypub.post/published-at
+                   :com.platypub.post/tags
+                   :com.platypub.post/description
+                   :com.platypub.post/image
+                   :com.platypub.video/video
+                   :com.platypub.post/canonical
+                   :com.platypub.post/html]
+          :sendable true
+          :render/label :com.platypub.video/title
+          :render/sections [{:label "Drafts"
+                             :match [[:com.platypub.video/draft true]]
+                             :order-by [[:com.platypub.video/title :desc]]
+                             :show [:com.platypub.video/tags]}
+                            {:label "Published"
+                             :match [:not [[:com.platypub.video/draft true]]]
+                             :order-by [[:com.platypub.video/published-at :desc]]
+                             :show [:com.platypub.video/published-at
+                                    :com.platypub.video/tags]}]}
+         
          {:key :pages
           :label "Page"
           :slug "pages"

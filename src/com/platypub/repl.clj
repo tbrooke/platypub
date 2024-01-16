@@ -7,6 +7,20 @@
 (defn get-sys []
   (biff/assoc-db @biff/system))
 
+;; (let [{:keys [biff/db] :as sys} (get-sys)]
+;;   (q db
+;;      '{:find (count doc)
+;;        :where [[doc :xt/id]]}))
+
+
+
+;; (let [{:keys [biff/db] :as sys} (get-sys)]
+;;   (q db
+;;      '{:find (pull user [*])
+;;        :where [[user :user/email]]}))
+
+
+
 (defn migrate! [email]
   (let [{:keys [biff/db biff.xtdb/node]} (get-sys)
         user-id (biff/lookup-id db :user/email email)
@@ -21,6 +35,8 @@
                            (assoc user-key user-id)
                            (dissoc :post/authors))])]
     (xt/submit-tx node tx)))
+
+;; (q db '{:find (count doc) :where [[doc :xt/id]]})
 
 (defn next-uuid [uuid]
   (java.util.UUID/nameUUIDFromBytes (.getBytes (str uuid))))

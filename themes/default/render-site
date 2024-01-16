@@ -24,10 +24,10 @@
 
 (defn navbar [{:keys [site navbar/max-w] :as opts}]
   (list
-    [:div.bg-primary.py-2
+    [:div.bg-primary.py-2.fixed.w-screen
      [:div.flex.mx-auto.items-center.text-white.gap-4.text-lg.flex-wrap.px-3
       {:class (or max-w "max-w-screen-md")}
-      (logo opts)
+      ;; (logo opts)
       [:div.flex-grow]
       (for [[href label] (parse-nav-links opts)]
         [:a.hover:underline.hidden.sm:block
@@ -42,16 +42,6 @@
   [:div
    {:style {:display "flex"
             :align-items "center"}}
-   [:img (if card
-           {:src (:author-image site)
-            :width "115px"
-            :height "115px"
-            :style {:border-radius "50%"}}
-           {:src (cached-img-url {:url (:author-image site)
-                                  :w 200 :h 200})
-            :width "50px"
-            :height "50px"
-            :style {:border-radius "50%"}})]
    [:div {:style {:width "0.75rem"}}]
    [:div
     [:div {:style {:line-height "1.25"}}
@@ -135,7 +125,7 @@
       (navbar (assoc opts :navbar/max-w width))
       [:div.mx-auto.p-3.text-lg.flex-grow.w-full
        {:class width}
-       [:div.h-2]
+       [:div.h-12]
        [:h1.font-bold.leading-tight.text-gray-900
         {:style {:font-size "2.75rem"}}
         (:title post)]
@@ -166,8 +156,8 @@
   (base-html
     (assoc opts :base/title "Archive")
     (navbar opts)
-    [:div.bg-tertiary.h-full.flex-grow.flex.flex-col
-     [:div.h-5]
+    [:div.bg-brown.h-full.flex-grow.flex.flex-col
+     [:div.h-20]
      [:div.max-w-screen-md.mx-auto.px-3.w-full
       (for [post posts
             :when (not ((:tags post) "unlisted"))]
@@ -178,33 +168,45 @@
          [:div.text-xl.font-bold (:title post)]
          [:div (:description post)]])]
      [:div.flex-grow]]
-    (subscribe-form opts)
+    ;; (subscribe-form opts)
     [:div.bg-primary
      [:div.sm:text-center.text-sm.leading-snug.w-full.px-3.pb-3.text-white.opacity-75
       (recaptcha-disclosure {:link-class "underline"})]]))
 
 (defn landing-page [{:keys [posts site] lst :list :as opts}]
   (base-html
-    (assoc opts :base/title (:title lst))
-    (navbar opts)
-    (subscribe-form opts)
-    [:div.bg-tertiary.h-full.flex-grow.flex.flex-col
-     [:div.h-5]
-     [:div.max-w-screen-md.mx-auto.px-3.w-full
-      (for [post (->> posts
-                      (sort-by #(not ((:tags %) "featured")))
-                      (remove #((:tags %) "unlisted"))
-                      (take 5))]
-        [:a.block.mb-5.bg-white.rounded.p-3.cursor-pointer.w-full
+   (assoc opts :base/title (:title "Mt Zion"))
+   (navbar opts)
+   [:div.flex.flex-col.justify-center.h-full.pt-10.my-0 [:img {:src "/images/buildingC.png"}]]
+   [:div.flex-grow.scroll-smooth
+
+  [:div.p-10.grid.grid-cols-1.sm:grid-cols-1.md:grid-cols-3.lg:grid-cols-3.xl:grid-cols-3.gap-5
+     (for [post (->> posts
+                     (remove #(not ((:tags %) "feature")))
+                     (take 3)
+                     (sort-by :order))]
+   
+   [:a.rounded.overflow-hidden.shadow-lg
          {:href (str "/p/" (:slug post) "/")
           :class "hover:bg-white/50"}
-         [:div.text-sm.text-gray-800 (format-date "d MMM yyyy" (:published-at post))]
-         [:div.text-xl.font-bold (:title post)]
-         [:div (:description post)]])]
-     [:div.flex-grow]
-     [:div.sm:text-center.text-sm.leading-snug.opacity-75.w-full.px-3
-      (recaptcha-disclosure {:link-class "underline"})]
-     [:div.h-3]]))
+    [:img.w-full {:src (:image post)}]
+    [:div.px-6.py-4
+     [:div.font-bold.text-xl.mb-2 (:title post)]
+     [:p.text-gray-700.text-base (:description post)]]])]
+
+   [:div.bg-tertiary.h-full.flex-grow.flex.flex-col
+    [:div.h-5]
+    [:div.max-w-screen-md.mx-auto.px-3.w-full
+     ]]
+
+   [:div.flex.flex-col.justify-center.h-full.pt-10.my-0 [:img {:src "https://res.cloudinary.com/trustblocks/image/upload/o_100/v1660418977/Pulpit_nub6nn.jpg"}]]
+  ;;  [:div.flex.flex-col.justify-center.pt-10.my-0.relative [:img {:src "https://res.cloudinary.com/trustblocks/image/upload/v1661820433/worship-with-us_vbfox1.jpg"}]]]
+    [:div.flex-grow]
+    [:div.sm:text-center.text-sm.leading-snug.opacity-75.w-full.px-3
+     (recaptcha-disclosure {:link-class "underline"})]
+    [:div.h-3]]))
+
+
 
 (def pages
   {"/" landing-page
